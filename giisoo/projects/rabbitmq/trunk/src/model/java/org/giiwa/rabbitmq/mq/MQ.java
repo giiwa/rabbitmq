@@ -153,7 +153,7 @@ public final class MQ {
 
         try {
           consumer.close();
-        } catch (JMSException e) {
+        } catch (Exception e) {
           log.error(e.getMessage(), e);
         }
       }
