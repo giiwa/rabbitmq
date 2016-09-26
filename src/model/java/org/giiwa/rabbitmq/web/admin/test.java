@@ -5,6 +5,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.apache.commons.configuration.PropertiesConfiguration;
 import org.giiwa.core.json.JSON;
 import org.giiwa.core.task.Task;
+import org.giiwa.rabbitmq.mq.IStub;
+import org.giiwa.rabbitmq.mq.MQ;
 
 public class test {
 
