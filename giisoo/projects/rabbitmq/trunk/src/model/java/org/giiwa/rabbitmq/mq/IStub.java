@@ -1,6 +1,8 @@
 package org.giiwa.rabbitmq.mq;
 
 import org.giiwa.core.json.JSON;
+import org.giiwa.rabbitmq.mq.MQ.Mode;
+import org.giiwa.rabbitmq.mq.MQ.Receiver;
 
 /**
  * the message stub

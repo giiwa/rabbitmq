@@ -5,11 +5,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import org.apache.commons.configuration.Configuration;
-import org.apache.commons.lang.SerializationUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.giiwa.core.bean.TimeStamp;
@@ -17,14 +16,16 @@ import org.giiwa.core.bean.X;
 import org.giiwa.core.json.JSON;
 import org.giiwa.core.task.Task;
 import org.giiwa.framework.bean.OpLog;
+import org.giiwa.framework.bean.Request;
+import org.giiwa.framework.bean.Response;
+import org.giiwa.rabbitmq.web.admin.rabbitmq;
 
-import com.rabbitmq.client.AMQP.BasicProperties;
+import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
-import com.rabbitmq.client.Consumer;
+import com.rabbitmq.client.DefaultConsumer;
 import com.rabbitmq.client.Envelope;
-import com.rabbitmq.client.ShutdownSignalException;
 
 /**
  * the distribute message system, <br>
@@ -36,9 +37,7 @@ import com.rabbitmq.client.ShutdownSignalException;
  */
 public final class MQ {
 
-  private static String group = X.EMPTY;
-
-  private static Log    log   = LogFactory.getLog(MQ.class);
+  private static Log log = LogFactory.getLog(MQ.class);
 
   /**
    * the message stub type <br>
@@ -52,37 +51,34 @@ public final class MQ {
     TOPIC, QUEUE
   };
 
-  private static boolean                   enabled = false;
-  private static String                    url;            // failover:(tcp://localhost:61616,tcp://remotehost:61616)?initialReconnectDelay=100
-  private static String                    user;
-  private static String                    password;
-  private static Channel                   channel;
-  private static Connection                connection;
+  private static boolean    enabled = false;
+  private static String     url;            // failover:(tcp://localhost:61616,tcp://remotehost:61616)?initialReconnectDelay=100
+  private static Channel    channel;
+  private static Connection connection;
 
   private static boolean init() {
-    if (enabled) {
+    if (enabled && connection == null) {
       try {
-
         ConnectionFactory factory = new ConnectionFactory();
-        factory.setHost("127.0.0.1");
-        factory.setUsername("guest");
-        factory.setPassword("guest");
-        factory.setVirtualHost("/");
-        connection = factory.newConnection();
+        factory.setUri(url);
+        factory.setAutomaticRecoveryEnabled(true);
+        factory.setNetworkRecoveryInterval(10000);
+
+        ExecutorService es = Executors.newFixedThreadPool(20);
+
+        connection = factory.newConnection(es);
         channel = connection.createChannel();
 
-        // OpLog.info(activemq.class, "startup", "connected ActiveMQ with [" +
-        // url + "]", null, null);
+        OpLog.info(rabbitmq.class, "startup", "connected RabbitMQ with [" + url + "]", null, null);
 
       } catch (Throwable e) {
         log.error(e.getMessage(), e);
         // e.printStackTrace();
-        // OpLog.info(activemq.class, "startup", "failed ActiveMQ with [" + url
-        // + "]", null, null);
+        OpLog.info(rabbitmq.class, "startup", "failed RabbitMQ with [" + url + "]", null, null);
       }
     }
 
-    return enabled && channel != null;
+    return enabled && connection != null;
   }
 
   private MQ() {
@@ -95,19 +91,12 @@ public final class MQ {
    * @return boolean
    */
   public static boolean init(Configuration conf) {
-    if (session != null)
+    if (connection != null)
       return true;
 
     enabled = true;
 
-    url = conf.getString("activemq.url", ActiveMQConnection.DEFAULT_BROKER_URL);
-    user = conf.getString("activemq.user", ActiveMQConnection.DEFAULT_USER);
-    password = conf.getString("activemq.passwd", ActiveMQConnection.DEFAULT_PASSWORD);
-
-    group = conf.getString("activemq.group", X.EMPTY);
-    if (!group.endsWith(".")) {
-      group += ".";
-    }
+    url = conf.getString("rabbitmq.url", X.EMPTY);
 
     // OpLog.info(activemq.class, "startup", url + ", " + group, null, null);
 
@@ -139,158 +128,65 @@ public final class MQ {
    * @author joe
    * 
    */
-  public final static class Receiver implements Consumer {
-    String          name;
-    IStub           cb;
-    MessageConsumer consumer;
-    TimeStamp       t     = TimeStamp.create();
-    int             count = 0;
+  public final static class Receiver extends DefaultConsumer {
+    String    name;
+    IStub     cb;
+    TimeStamp t     = TimeStamp.create();
+    int       count = 0;
 
     public void close() {
-      if (consumer != null) {
-        this.channel.close();
-        this.connection.close();
+      // TODO
 
-        try {
-          consumer.close();
-        } catch (Exception e) {
-          log.error(e.getMessage(), e);
-        }
-      }
     }
 
     private Receiver(String name, IStub cb, Mode mode) {
-      this.name = group + name;
+      super(channel);
+
       this.cb = cb;
 
       if (enabled) {
+        try {
 
-        channel.queueDeclare(name, true, false, false, null);
-        channel.basicConsume(name, true, this);
+          channel.queueDeclare(name, false, false, false, null);
+          channel.basicConsume(name, true, this);
 
-        Destination dest = null;
-        if (mode == Mode.QUEUE) {
-          dest = new ActiveMQQueue(group + name);
-        } else {
-          dest = new ActiveMQTopic(group + name);
+        } catch (Exception e) {
+          log.error(e.getMessage(), e);
         }
-
-        consumer = session.createConsumer(dest);
-        consumer.setMessageListener(this);
 
       } else {
         log.warn("no mq configured!");
       }
     }
-    
+
     @Override
-    public void onMessage(Message m) {
-      try {
-        // System.out.println("got a message.., " + t.reset() +
-        // "ms");
+    public void handleDelivery(String consumerTag, Envelope envelope, AMQP.BasicProperties properties, byte[] body)
+        throws IOException {
 
-        count++;
-        if (m instanceof BytesMessage) {
-          BytesMessage m1 = (BytesMessage) m;
-          process(name, m1, cb);
-        } else {
-          System.out.println(m);
-        }
+      Request req = new Request(body, 0);
 
-        if (count % 10000 == 0) {
-          System.out.println("process the 10000 messages, cost " + t.reset() + "ms");
-        }
+      count++;
 
-      } catch (Exception e) {
-        log.error(e.getMessage(), e);
+      process(name, req, cb);
+
+      if (count % 10000 == 0) {
+        System.out.println("process the 10000 messages, cost " + t.reset() + "ms");
       }
-    }
-
-    @Override
-    public void handleCancel(String arg0) throws IOException {
-      // TODO Auto-generated method stub
-
-    }
-
-    @Override
-    public void handleCancelOk(String arg0) {
-      // TODO Auto-generated method stub
-
-    }
-
-    @Override
-    public void handleConsumeOk(String arg0) {
-      // TODO Auto-generated method stub
-
-    }
-
-    @Override
-    public void handleDelivery(String arg0, Envelope arg1, BasicProperties arg2, byte[] bb) throws IOException {
-      // TODO Auto-generated method stub
-      Map map=(HashMap)SerializationUtils.deserialize(bb);
-    }
-
-    @Override
-    public void handleRecoverOk(String arg0) {
-      // TODO Auto-generated method stub
-
-    }
-
-    @Override
-    public void handleShutdownSignal(String arg0, ShutdownSignalException arg1) {
-      // TODO Auto-generated method stub
 
     }
   }
 
-  public abstract class EndPoint {
-    protected Channel    channel;
-    protected Connection connection;
-    protected String     endPointName;
-
-    public EndPoint(String endPointName) {
-      try {
-        this.endPointName = endPointName;
-        ConnectionFactory factory = new ConnectionFactory();
-        factory.setHost("127.0.0.1");
-        factory.setUsername("guest");
-        factory.setPassword("guest");
-        factory.setVirtualHost("/");
-        connection = factory.newConnection();
-        channel = connection.createChannel();
-        /**
-         * queue - the name of the queuedurable true - if we are declaring a
-         * durable queue (the queue will survive a server restart)exclusive true
-         * - if we are declaring an exclusive queue (restricted to this
-         * connection)autoDelete true - if we are declaring an autodelete queue
-         * (server will delete it when no longer in use)arguments other -
-         * properties (construction arguments) for the queue
-         */
-        channel.queueDeclare(endPointName, true, false, false, null);
-      } catch (Exception e) {
-        System.out.println("出错了");
-
-      }
-
-    }
-
-    public void close() throws IOException {
-      this.channel.close();
-      this.connection.close();
-    }
-  }
-
-  
-  private static void process(final String name, final BytesMessage req, final IStub cb) {
+  private static void process(final String name, final Request req, final IStub cb) {
 
     new Task() {
       @Override
       public void onExecute() {
 
         try {
+
           long seq = req.readLong();
-          String to = req.readUTF();
-          String from = req.readUTF();
+          String to = req.readString();
+          String from = req.readString();
 
           long time = req.readLong();
           long delay = System.currentTimeMillis() - time;
@@ -301,8 +197,7 @@ public final class MQ {
           JSON message = null;
           int len = req.readInt();
           if (len > 0) {
-            byte[] bb = new byte[len];
-            req.readBytes(bb);
+            byte[] bb = req.readBytes(len);
             ByteArrayInputStream is = new ByteArrayInputStream(bb);
             ObjectInputStream in = new ObjectInputStream(is);
             message = (JSON) in.readObject();
@@ -312,8 +207,7 @@ public final class MQ {
           byte[] bb = null;
           len = req.readInt();
           if (len > 0) {
-            bb = new byte[len];
-            req.readBytes(bb);
+            bb = req.readBytes(len);
           }
 
           log.debug("got a message:" + from + ", " + message);
@@ -326,66 +220,6 @@ public final class MQ {
       }
     }.schedule(0);
 
-  }
-
-  /**
-   * broadcast the message as "topic" to all "dest:to", and return immediately
-   * 
-   * @param seq
-   * @param to
-   * @param message
-   * @param bb
-   * @param from
-   * @return 1: success<br>
-   */
-  public static int broadcast(long seq, String to, JSON message, byte[] bb, String from) {
-    if (message == null)
-      return -1;
-
-    if (!enabled) {
-      return -1;
-    }
-
-    try {
-
-      /**
-       * get the message producer by destination name
-       */
-      MessageProducer p = getTopic(to);
-      if (p != null) {
-        BytesMessage resp = session.createBytesMessage();
-
-        resp.writeLong(seq);
-        resp.writeUTF(to);
-        resp.writeUTF(from);
-        resp.writeLong(System.currentTimeMillis());
-
-        ByteArrayOutputStream os = new ByteArrayOutputStream();
-        ObjectOutputStream out = new ObjectOutputStream(os);
-        out.writeObject(message);
-        out.close();
-        byte[] ss = os.toByteArray();
-        resp.writeInt(ss.length);
-        resp.writeBytes(os.toByteArray());
-
-        if (bb == null) {
-          resp.writeInt(0);
-        } else {
-          resp.writeInt(bb.length);
-          resp.writeBytes(bb);
-        }
-
-        p.send(resp, DeliveryMode.NON_PERSISTENT, 0, X.AMINUTE);
-
-        log.debug("Broadcasting:" + to + ", " + message);
-
-        return 1;
-      }
-    } catch (Exception e) {
-      log.error(e.getMessage(), e);
-    }
-
-    return -1;
   }
 
   /**
@@ -411,14 +245,13 @@ public final class MQ {
       /**
        * get the message producer by destination name
        */
-      MessageProducer p = getQueue(to);
-      if (p != null) {
-        BytesMessage resp = session.createBytesMessage();
+      if (channel != null) {
+        Response resp = new Response();
 
         // Response resp = new Response();
         resp.writeLong(seq);
-        resp.writeUTF(to == null ? X.EMPTY : to);
-        resp.writeUTF(from == null ? X.EMPTY : from);
+        resp.writeString(to == null ? X.EMPTY : to);
+        resp.writeString(from == null ? X.EMPTY : from);
         resp.writeLong(System.currentTimeMillis());
 
         ByteArrayOutputStream os = new ByteArrayOutputStream();
@@ -436,10 +269,9 @@ public final class MQ {
           resp.writeBytes(bb);
         }
 
-        p.send(resp, DeliveryMode.NON_PERSISTENT, 0, X.AMINUTE);
+        channel.queueDeclare(to, false, false, false, null);
+        channel.basicPublish("", to, null, resp.getBytes());
 
-        channel.basicPublish("", endPointName, null, SerializationUtils.serialize(resp));
-        
         log.debug("Sending:" + to + ", " + msg);
 
         return 1;
@@ -451,71 +283,4 @@ public final class MQ {
     return -1;
   }
 
-  /**
-   * 获取消息队列的发送庄
-   * 
-   * @param name
-   *          消息队列名称
-   * @return messageproducer
-   */
-  private static Endpoint getQueue(String name) {
-    synchronized (queues) {
-      if (enabled) {
-        if (queues.containsKey(name)) {
-          return queues.get(name);
-        }
-
-        try {
-          Destination dest = new ActiveMQQueue(group + name);
-          MessageProducer producer = session.createProducer(dest);
-          producer.setDeliveryMode(DeliveryMode.NON_PERSISTENT);
-          queues.put(name, producer);
-
-          return producer;
-        } catch (Exception e) {
-          log.error(name, e);
-        }
-      }
-    }
-
-    return null;
-  }
-
-  private static MessageProducer getTopic(String name) {
-    synchronized (topics) {
-      if (enabled) {
-        if (topics.containsKey(name)) {
-          return topics.get(name);
-        }
-
-        try {
-          Destination dest = new ActiveMQTopic(group + name);
-          MessageProducer producer = session.createProducer(dest);
-          producer.setDeliveryMode(DeliveryMode.NON_PERSISTENT);
-          topics.put(name, producer);
-
-          return producer;
-        } catch (Exception e) {
-          log.error(name, e);
-        }
-      }
-    }
-    return null;
-  }
-
-  /**
-   * queue producer cache
-   */
-  private static Map<String, MessageProducer> queues = new HashMap<String, MessageProducer>();
-
-  /**
-   * topic producer cache
-   */
-  private static Map<String, MessageProducer> topics = new HashMap<String, MessageProducer>();
-
-  public static void main(String[] args) {
-    Consumer consumer = new Consumer("river");  
-    consumer.consumer();  
-  }
-  
 }

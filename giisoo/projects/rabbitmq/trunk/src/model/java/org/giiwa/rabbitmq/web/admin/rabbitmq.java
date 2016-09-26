@@ -50,9 +50,6 @@ public class rabbitmq extends Model {
     if (method.isPost()) {
       Global.setConfig("rabbitmq.enabled", X.isSame("on", this.getString("enabled")) ? "on" : "off");
       Global.setConfig("rabbitmq.url", this.getString("url"));
-      Global.setConfig("rabbitmq.group", this.getString("group"));
-      Global.setConfig("rabbitmq.user", this.getString("user"));
-      Global.setConfig("rabbitmq.passwd", this.getString("passwd"));
 
       this.set(X.MESSAGE, lang.get("restart.required"));
     }
