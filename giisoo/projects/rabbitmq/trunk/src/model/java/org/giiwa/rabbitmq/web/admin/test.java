@@ -3,6 +3,7 @@ package org.giiwa.rabbitmq.web.admin;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.commons.configuration.PropertiesConfiguration;
+import org.giiwa.core.conf.Global;
 import org.giiwa.core.json.JSON;
 import org.giiwa.core.task.Task;
 import org.giiwa.rabbitmq.mq.IStub;
@@ -12,13 +13,11 @@ public class test {
 
   public static void main(String[] args) {
 
-    PropertiesConfiguration pp = new PropertiesConfiguration();
-    pp.addProperty("activemq.url",
-        "failover:(tcp://joe.mac:61616)?timeout=3000&jms.prefetchPolicy.all=2&jms.useAsyncSend=true");
+    Global.setConfig("rabbitmq.url", "amqp://joe.mac:5672/group");
 
-    Task.init(200, pp);
+    Task.init(200, null);
 
-    MQ.init(pp);
+    MQ.init();
 
     int n = 1000;
     int c = 100;
