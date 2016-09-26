@@ -73,8 +73,7 @@ public final class MQ {
 
       } catch (Throwable e) {
         log.error(e.getMessage(), e);
-        // e.printStackTrace();
-        OpLog.info(rabbitmq.class, "startup", "failed RabbitMQ with [" + url + "]", null, null);
+        OpLog.warn(rabbitmq.class, "startup", "failed RabbitMQ with [" + url + "]", null, null);
       }
     }
 
