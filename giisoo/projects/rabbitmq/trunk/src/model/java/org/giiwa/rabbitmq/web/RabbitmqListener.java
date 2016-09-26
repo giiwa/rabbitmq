@@ -30,7 +30,7 @@ public class RabbitmqListener implements IListener {
 
         @Override
         public void onExecute() {
-          MQ.init(conf);
+          MQ.init();
 
           Echo e = new Echo("echo");
           try {
