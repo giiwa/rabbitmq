@@ -65,7 +65,7 @@ public final class MQ {
         factory.setAutomaticRecoveryEnabled(true);
         factory.setNetworkRecoveryInterval(10000);
 
-        ExecutorService es = Executors.newFixedThreadPool(20);
+        ExecutorService es = Executors.newFixedThreadPool(Global.getInt("rabbitmq.threads", 10));
 
         connection = factory.newConnection(es);
         channel = connection.createChannel();
@@ -93,9 +93,11 @@ public final class MQ {
    */
   public static Receiver bind(String name, IStub stub, Mode mode) {
 
+    Channel ch = null;
     Receiver r = null;
     try {
-      r = new Receiver(name, stub, mode);
+      ch = connection.createChannel();
+      r = new Receiver(ch, name, stub, mode);
       OpLog.info(rabbitmq.class, "bind", "[" + name + "], stub=" + stub.getClass().toString() + ", mode=" + mode, null,
           null);
     } catch (Exception e) {
@@ -103,6 +105,12 @@ public final class MQ {
       OpLog.warn(rabbitmq.class, "bind",
           "[" + name + "] failed, error=" + e.getMessage() + ", stub=" + stub.getClass().toString() + ", mode=" + mode,
           null, null);
+      if (ch != null) {
+        try {
+          ch.close();
+        } catch (Exception e1) {
+        }
+      }
     }
     return r;
   }
@@ -124,20 +132,23 @@ public final class MQ {
     int       count = 0;
 
     public void close() {
-      // TODO
-
+      try {
+        this.getChannel().close();
+      } catch (Exception e) {
+        log.error(e.getMessage(), e);
+      }
     }
 
-    private Receiver(String name, IStub cb, Mode mode) {
-      super(channel);
+    private Receiver(Channel ch, String name, IStub cb, Mode mode) {
+      super(ch);
 
       this.cb = cb;
 
       if (connection != null) {
         try {
 
-          channel.queueDeclare(name, false, false, false, null);
-          channel.basicConsume(name, true, this);
+          ch.queueDeclare(name, false, false, false, null);
+          ch.basicConsume(name, true, this);
 
         } catch (Exception e) {
           log.error(e.getMessage(), e);

@@ -9,8 +9,9 @@
 </div>
 
 <form action='/admin/rabbitmq/setting'  method='post' class='form' enctype="multipart/form-data">
-	<div><label><h3>$lang.get('rabbitmq.enabled'):</h3><input type='checkbox' name='enabled' #if($global.getString('rabbitmq.enabled', 'off')=='on') checked #end/><g>$lang.get('activemq.enabled.hint')</g></label></div>
-	<div><label><h3>$lang.get('rabbitmq.url'):</h3><input type='text' style='width:40%' name='url' value="$!global.getString('rabbitmq.url', 'amqp://user:passwd@[host]:5672/virutalhost')"/><g>$lang.get('activemq.url.hint')</g></label></div>
+	<div><label><h3>$lang.get('rabbitmq.enabled'):</h3><input type='checkbox' name='enabled' #if($global.getString('rabbitmq.enabled', 'off')=='on') checked #end/><g>$lang.get('rabbitmq.enabled.hint')</g></label></div>
+	<div><label><h3>$lang.get('rabbitmq.url'):</h3><input type='text' style='width:40%' name='url' value="$!global.getString('rabbitmq.url', 'amqp://user:passwd@[host]:5672/virutalhost')"/><g>$lang.get('rabbitmq.url.hint')</g></label></div>
+	<div><label><h3>$lang.get('rabbitmq.threads'):</h3><input type='number' name='threads' value="$!global.getInt('rabbitmq.threads', 10)"/><g>$lang.get('rabbitmq.threads.hint')</g></label></div>
 	
 	<button type='submit'>$lang.get('btn.save')</button>
 </form>

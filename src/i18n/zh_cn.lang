@@ -4,3 +4,7 @@ rabbitmq.logs.title=RabbitMQ logs
 rabbitmq.enabled=Enabled
 rabbitmq.setting.title=RabbitMQ setting
 rabbitmq.url=Url
+rabbitmq.enabled.hint=
+rabbitmq.threads=Threads number
+rabbitmq.threads.hint=Threads number in connections
+rabbitmq.url.hint=RabbitMQ url
