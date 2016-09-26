@@ -20,12 +20,12 @@ public class RabbitmqListener implements IListener {
   @Override
   public void onStart(Configuration conf, Module m) {
     // TODO Auto-generated method stub
-    log.info("activemq is starting ...");
+    log.info("rabbitmq is starting ...");
 
     // OpLog.info(activemq.class, "startup",
     // Global.getString("activemq.enabled", X.EMPTY), null, null);
 
-    if (X.isSame("on", Global.getString("activemq.enabled", X.EMPTY))) {
+    if (X.isSame("on", Global.getString("rabbitmq.enabled", X.EMPTY))) {
       new Task() {
 
         @Override
