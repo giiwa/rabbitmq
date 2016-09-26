@@ -17,11 +17,11 @@ public abstract class IStub {
     this.name = name;
   }
 
-  final public void bind() throws JMSException {
+  final public void bind() {
     bind(Mode.QUEUE);
   }
 
-  final public void bind(Mode m) throws JMSException {
+  final public void bind(Mode m) {
     r = MQ.bind(name, this, m);
   }
 

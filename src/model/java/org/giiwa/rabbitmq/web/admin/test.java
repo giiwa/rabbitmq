@@ -2,11 +2,7 @@ package org.giiwa.rabbitmq.web.admin;
 
 import java.util.concurrent.atomic.AtomicLong;
 
-import javax.jms.JMSException;
-
 import org.apache.commons.configuration.PropertiesConfiguration;
-import org.giiwa.activemq.mq.IStub;
-import org.giiwa.activemq.mq.MQ;
 import org.giiwa.core.json.JSON;
 import org.giiwa.core.task.Task;
 
@@ -29,7 +25,7 @@ public class test {
       t[i] = new Tester("t" + i, n);
       try {
         t[i].bind();
-      } catch (JMSException e1) {
+      } catch (Exception e1) {
         // TODO Auto-generated catch block
         e1.printStackTrace();
       }
