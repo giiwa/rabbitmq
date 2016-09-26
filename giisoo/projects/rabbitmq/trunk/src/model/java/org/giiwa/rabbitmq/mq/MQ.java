@@ -2,35 +2,29 @@ package org.giiwa.rabbitmq.mq;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.jms.BytesMessage;
-import javax.jms.Connection;
-import javax.jms.DeliveryMode;
-import javax.jms.Destination;
-import javax.jms.JMSException;
-import javax.jms.Message;
-import javax.jms.MessageConsumer;
-import javax.jms.MessageListener;
-import javax.jms.MessageProducer;
-import javax.jms.Session;
-
-import org.apache.activemq.ActiveMQConnection;
-import org.apache.activemq.ActiveMQConnectionFactory;
-import org.apache.activemq.command.ActiveMQQueue;
-import org.apache.activemq.command.ActiveMQTopic;
 import org.apache.commons.configuration.Configuration;
+import org.apache.commons.lang.SerializationUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.giiwa.activemq.web.admin.activemq;
 import org.giiwa.core.bean.TimeStamp;
 import org.giiwa.core.bean.X;
 import org.giiwa.core.json.JSON;
 import org.giiwa.core.task.Task;
 import org.giiwa.framework.bean.OpLog;
+
+import com.rabbitmq.client.AMQP.BasicProperties;
+import com.rabbitmq.client.Channel;
+import com.rabbitmq.client.Connection;
+import com.rabbitmq.client.ConnectionFactory;
+import com.rabbitmq.client.Consumer;
+import com.rabbitmq.client.Envelope;
+import com.rabbitmq.client.ShutdownSignalException;
 
 /**
  * the distribute message system, <br>
@@ -58,27 +52,24 @@ public final class MQ {
     TOPIC, QUEUE
   };
 
-  private static Connection                connection;
-  private static Session                   session;
   private static boolean                   enabled = false;
   private static String                    url;            // failover:(tcp://localhost:61616,tcp://remotehost:61616)?initialReconnectDelay=100
   private static String                    user;
   private static String                    password;
-  private static ActiveMQConnectionFactory factory;
+  private static Channel                   channel;
+  private static Connection                connection;
 
   private static boolean init() {
-    if (enabled && (session == null)) {
+    if (enabled) {
       try {
-        if (factory == null) {
-          factory = new ActiveMQConnectionFactory(user, password, url);
-        }
 
-        if (connection == null) {
-          connection = factory.createConnection();
-          connection.start();
-        }
-
-        session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+        ConnectionFactory factory = new ConnectionFactory();
+        factory.setHost("127.0.0.1");
+        factory.setUsername("guest");
+        factory.setPassword("guest");
+        factory.setVirtualHost("/");
+        connection = factory.newConnection();
+        channel = connection.createChannel();
 
         // OpLog.info(activemq.class, "startup", "connected ActiveMQ with [" +
         // url + "]", null, null);
@@ -91,7 +82,7 @@ public final class MQ {
       }
     }
 
-    return enabled && session != null;
+    return enabled && channel != null;
   }
 
   private MQ() {
@@ -131,14 +122,14 @@ public final class MQ {
    * @param stub
    * @throws JMSException
    */
-  public static Receiver bind(String name, IStub stub, Mode mode) throws JMSException {
+  public static Receiver bind(String name, IStub stub, Mode mode) {
     OpLog.info(rabbitmq.class, "bind", "[" + name + "], stub=" + stub.getClass().toString() + ", mode=" + mode, null,
         null);
 
     return new Receiver(name, stub, mode);
   }
 
-  public static Receiver bind(String name, IStub stub) throws JMSException {
+  public static Receiver bind(String name, IStub stub) {
     return bind(name, stub, Mode.QUEUE);
   }
 
@@ -148,7 +139,7 @@ public final class MQ {
    * @author joe
    * 
    */
-  public final static class Receiver implements MessageListener {
+  public final static class Receiver implements Consumer {
     String          name;
     IStub           cb;
     MessageConsumer consumer;
@@ -157,6 +148,9 @@ public final class MQ {
 
     public void close() {
       if (consumer != null) {
+        this.channel.close();
+        this.connection.close();
+
         try {
           consumer.close();
         } catch (JMSException e) {
@@ -165,11 +159,15 @@ public final class MQ {
       }
     }
 
-    private Receiver(String name, IStub cb, Mode mode) throws JMSException {
+    private Receiver(String name, IStub cb, Mode mode) {
       this.name = group + name;
       this.cb = cb;
 
       if (enabled) {
+
+        channel.queueDeclare(name, true, false, false, null);
+        channel.basicConsume(name, true, this);
+
         Destination dest = null;
         if (mode == Mode.QUEUE) {
           dest = new ActiveMQQueue(group + name);
@@ -184,7 +182,7 @@ public final class MQ {
         log.warn("no mq configured!");
       }
     }
-
+    
     @Override
     public void onMessage(Message m) {
       try {
@@ -207,8 +205,82 @@ public final class MQ {
         log.error(e.getMessage(), e);
       }
     }
+
+    @Override
+    public void handleCancel(String arg0) throws IOException {
+      // TODO Auto-generated method stub
+
+    }
+
+    @Override
+    public void handleCancelOk(String arg0) {
+      // TODO Auto-generated method stub
+
+    }
+
+    @Override
+    public void handleConsumeOk(String arg0) {
+      // TODO Auto-generated method stub
+
+    }
+
+    @Override
+    public void handleDelivery(String arg0, Envelope arg1, BasicProperties arg2, byte[] bb) throws IOException {
+      // TODO Auto-generated method stub
+      Map map=(HashMap)SerializationUtils.deserialize(bb);
+    }
+
+    @Override
+    public void handleRecoverOk(String arg0) {
+      // TODO Auto-generated method stub
+
+    }
+
+    @Override
+    public void handleShutdownSignal(String arg0, ShutdownSignalException arg1) {
+      // TODO Auto-generated method stub
+
+    }
   }
 
+  public abstract class EndPoint {
+    protected Channel    channel;
+    protected Connection connection;
+    protected String     endPointName;
+
+    public EndPoint(String endPointName) {
+      try {
+        this.endPointName = endPointName;
+        ConnectionFactory factory = new ConnectionFactory();
+        factory.setHost("127.0.0.1");
+        factory.setUsername("guest");
+        factory.setPassword("guest");
+        factory.setVirtualHost("/");
+        connection = factory.newConnection();
+        channel = connection.createChannel();
+        /**
+         * queue - the name of the queuedurable true - if we are declaring a
+         * durable queue (the queue will survive a server restart)exclusive true
+         * - if we are declaring an exclusive queue (restricted to this
+         * connection)autoDelete true - if we are declaring an autodelete queue
+         * (server will delete it when no longer in use)arguments other -
+         * properties (construction arguments) for the queue
+         */
+        channel.queueDeclare(endPointName, true, false, false, null);
+      } catch (Exception e) {
+        System.out.println("出错了");
+
+      }
+
+    }
+
+    public void close() throws IOException {
+      this.channel.close();
+      this.connection.close();
+    }
+  }
+
+  
   private static void process(final String name, final BytesMessage req, final IStub cb) {
 
     new Task() {
@@ -366,6 +438,8 @@ public final class MQ {
 
         p.send(resp, DeliveryMode.NON_PERSISTENT, 0, X.AMINUTE);
 
+        channel.basicPublish("", endPointName, null, SerializationUtils.serialize(resp));
+        
         log.debug("Sending:" + to + ", " + msg);
 
         return 1;
@@ -384,7 +458,7 @@ public final class MQ {
    *          消息队列名称
    * @return messageproducer
    */
-  private static MessageProducer getQueue(String name) {
+  private static Endpoint getQueue(String name) {
     synchronized (queues) {
       if (enabled) {
         if (queues.containsKey(name)) {
@@ -439,4 +513,9 @@ public final class MQ {
    */
   private static Map<String, MessageProducer> topics = new HashMap<String, MessageProducer>();
 
+  public static void main(String[] args) {
+    Consumer consumer = new Consumer("river");  
+    consumer.consumer();  
+  }
+  
 }

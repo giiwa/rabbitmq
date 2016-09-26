@@ -1,9 +1,5 @@
 package org.giiwa.rabbitmq.mq;
 
-import javax.jms.JMSException;
-
-import org.giiwa.activemq.mq.MQ.Mode;
-import org.giiwa.activemq.mq.MQ.Receiver;
 import org.giiwa.core.json.JSON;
 
 /**
