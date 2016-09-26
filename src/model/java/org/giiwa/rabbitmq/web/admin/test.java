@@ -13,42 +13,43 @@ public class test {
 
   public static void main(String[] args) {
 
-    Global.setConfig("rabbitmq.url", "amqp://joe.mac:5672/group");
+    Global.setConfig("rabbitmq.url", "amqp://joe.mac:5672");
 
     Task.init(200, null);
 
-    MQ.init();
+    if (MQ.init()) {
 
-    int n = 1000;
-    int c = 100;
-    Tester[] t = new Tester[c];
-    for (int i = 0; i < t.length; i++) {
-      t[i] = new Tester("t" + i, n);
-      try {
-        t[i].bind();
-      } catch (Exception e1) {
-        // TODO Auto-generated catch block
-        e1.printStackTrace();
-      }
-      t[i].send("echo", JSON.create(), null);
-    }
-
-    synchronized (t) {
-      int i = 0;
-      try {
-        for (Tester t1 : t) {
-          while (!t1.isFinished() && i < 100) {
-            t.wait(1000);
-            i++;
-          }
+      int n = 1000;
+      int c = 100;
+      Tester[] t = new Tester[c];
+      for (int i = 0; i < t.length; i++) {
+        t[i] = new Tester("t" + i, n);
+        try {
+          t[i].bind();
+        } catch (Exception e1) {
+          // TODO Auto-generated catch block
+          e1.printStackTrace();
         }
-      } catch (Exception e) {
-        e.printStackTrace();
+        t[i].send("echo", JSON.create(), null);
       }
-    }
 
-    for (Tester t1 : t) {
-      t1.println();
+      synchronized (t) {
+        int i = 0;
+        try {
+          for (Tester t1 : t) {
+            while (!t1.isFinished() && i < 100) {
+              t.wait(1000);
+              i++;
+            }
+          }
+        } catch (Exception e) {
+          e.printStackTrace();
+        }
+      }
+
+      for (Tester t1 : t) {
+        t1.println();
+      }
     }
 
     System.exit(0);
