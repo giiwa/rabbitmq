@@ -8,11 +8,11 @@ import java.io.ObjectOutputStream;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import org.apache.commons.configuration.Configuration;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.giiwa.core.bean.TimeStamp;
 import org.giiwa.core.bean.X;
+import org.giiwa.core.conf.Global;
 import org.giiwa.core.json.JSON;
 import org.giiwa.core.task.Task;
 import org.giiwa.framework.bean.OpLog;
@@ -51,14 +51,15 @@ public final class MQ {
     TOPIC, QUEUE
   };
 
-  private static boolean    enabled = false;
-  private static String     url;            // failover:(tcp://localhost:61616,tcp://remotehost:61616)?initialReconnectDelay=100
+  private static String     url;       // failover:(tcp://localhost:61616,tcp://remotehost:61616)?initialReconnectDelay=100
   private static Channel    channel;
   private static Connection connection;
 
-  private static boolean init() {
-    if (enabled && connection == null) {
+  public static boolean init() {
+    if (connection == null) {
       try {
+        url = Global.getString("rabbitmq.url", X.EMPTY);
+
         ConnectionFactory factory = new ConnectionFactory();
         factory.setUri(url);
         factory.setAutomaticRecoveryEnabled(true);
@@ -77,30 +78,10 @@ public final class MQ {
       }
     }
 
-    return enabled && connection != null;
+    return connection != null;
   }
 
   private MQ() {
-  }
-
-  /**
-   * initialize the MQ
-   * 
-   * @param conf
-   * @return boolean
-   */
-  public static boolean init(Configuration conf) {
-    if (connection != null)
-      return true;
-
-    enabled = true;
-
-    url = conf.getString("rabbitmq.url", X.EMPTY);
-
-    // OpLog.info(activemq.class, "startup", url + ", " + group, null, null);
-
-    return init();
-
   }
 
   /**
@@ -111,10 +92,19 @@ public final class MQ {
    * @throws JMSException
    */
   public static Receiver bind(String name, IStub stub, Mode mode) {
-    OpLog.info(rabbitmq.class, "bind", "[" + name + "], stub=" + stub.getClass().toString() + ", mode=" + mode, null,
-        null);
 
-    return new Receiver(name, stub, mode);
+    Receiver r = null;
+    try {
+      r = new Receiver(name, stub, mode);
+      OpLog.info(rabbitmq.class, "bind", "[" + name + "], stub=" + stub.getClass().toString() + ", mode=" + mode, null,
+          null);
+    } catch (Exception e) {
+      log.error(e.getMessage(), e);
+      OpLog.warn(rabbitmq.class, "bind",
+          "[" + name + "] failed, error=" + e.getMessage() + ", stub=" + stub.getClass().toString() + ", mode=" + mode,
+          null, null);
+    }
+    return r;
   }
 
   public static Receiver bind(String name, IStub stub) {
@@ -143,7 +133,7 @@ public final class MQ {
 
       this.cb = cb;
 
-      if (enabled) {
+      if (connection != null) {
         try {
 
           channel.queueDeclare(name, false, false, false, null);
@@ -235,7 +225,7 @@ public final class MQ {
     if (msg == null)
       return -1;
 
-    if (!enabled) {
+    if (connection == null) {
       return -1;
     }
 
